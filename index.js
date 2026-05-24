@@ -1,81 +1,52 @@
-const { Telegraf } = require("telegraf");
+const express = require("express");
+const TelegramBot = require("node-telegram-bot-api");
 
-const bot = new Telegraf("YOUR_BOT_TOKEN");
+const token = process.env.BOT_TOKEN;
+const url = process.env.RENDER_EXTERNAL_URL;
 
-// 🔒 ID حقك فقط
-const OWNER_ID = 5441032728;
+const bot = new TelegramBot(token);
+bot.setWebHook(`${url}/bot${token}`);
 
-// حالة التشغيل
-let isActive = true;
+const app = express();
+app.use(express.json());
 
-// ===== أوامر التحكم =====
-bot.on("text", async (ctx, next) => {
-const text = ctx.message.text.toLowerCase();
-
-// لازم يكون فيه تاغ للبوت
-if (!text.includes("@astascuritybot")) return next();
-
-// تحقق من صاحب الأمر
-if (ctx.from.id !== OWNER_ID) return;
-
-if (text.includes("/start")) {
-isActive = true;
-return ctx.reply("✅ Bot Activated");
-}
-
-if (text.includes("/stop")) {
-isActive = false;
-return ctx.reply("⛔ Bot Stopped");
-}
-
-return next();
+app.post(`/bot${token}`, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
 });
 
-// ===== الفلترة =====
-bot.on("message", async (ctx) => {
-try {
-if (!isActive) return;
+// فلترة الرسائل
+bot.on("message", async (msg) => {
+    const chatId = msg.chat.id;
 
-const msg = ctx.message;
+    try {
+        // حذف forwarded
+        if (msg.forward_date) {
+            return bot.deleteMessage(chatId, msg.message_id);
+        }
 
-// تجاهل الأدمن
-const member = await ctx.getChatMember(msg.from.id);
-if (member.status === "administrator" || member.status === "creator") return;
+        // حذف inline buttons
+        if (msg.reply_markup) {
+            return bot.deleteMessage(chatId, msg.message_id);
+        }
 
-// ===== حذف inline buttons =====
-if (msg.reply_markup && msg.reply_markup.inline_keyboard) {
-  return ctx.deleteMessage();
-}
+        let text = (msg.text || "") + (msg.caption || "");
 
-// ===== حذف forwarded =====
-if (msg.forward_date || msg.forward_from || msg.forward_from_chat) {
-  return ctx.deleteMessage();
-}
+        // حذف روابط
+        if (/https?:\/\/|t\.me|www\./i.test(text)) {
+            return bot.deleteMessage(chatId, msg.message_id);
+        }
 
-// ===== حذف رسائل البوت =====
-if (msg.from.is_bot) {
-  return ctx.deleteMessage();
-}
+        // حذف كلمات
+        if (/f[\W_]*u[\W_]*l[\W_]*l|🔞|xxx|porn|sex/i.test(text)) {
+            return bot.deleteMessage(chatId, msg.message_id);
+        }
 
-let text = (msg.text || "") + " " + (msg.caption || "");
-text = text.toLowerCase();
-
-// ===== كلمات سيئة =====
-const badPattern = /(f[\W_]*u[\W_]*l[\W_]*l|🔞|xxx|porn|sex)/i;
-
-// ===== روابط =====
-const linkPattern = /(https?:\/\/|www\.|t\.me\/)/i;
-
-if (badPattern.test(text) || linkPattern.test(text)) {
-  return ctx.deleteMessage();
-}
-
-} catch (err) {
-console.log(err);
-}
+    } catch (e) {
+        console.log(e);
+    }
 });
 
-// تشغيل البوت
-bot.launch();
-
-console.log("🔥 Bot is running...");
+app.listen(3000, () => {
+    console.log("Bot is running...");
+});
